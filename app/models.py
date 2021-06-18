@@ -11,14 +11,14 @@ import random
 import os
 import requests
 class UserManager(BaseUserManager):
-    def create_user(self, phone, password=None, is_staff=False, is_active=True, is_admin=False):
-        if not phone:
-            raise ValueError('users must have a phone number')
+    def create_user(self, email, password=None, is_staff=False, is_active=True, is_admin=False):
+        if not email:
+            raise ValueError('users must have a email')
         if not password:
             raise ValueError('user must have a password')
 
         user_obj = self.model(
-            phone=phone
+            email=email
         )
         user_obj.set_password(password)
         user_obj.staff = is_staff
@@ -29,7 +29,7 @@ class UserManager(BaseUserManager):
 
     def create_staffuser(self, phone, password=None):
         user = self.create_user(
-            phone,
+            email,
             password=password,
             is_staff=True,
 
@@ -37,9 +37,9 @@ class UserManager(BaseUserManager):
         )
         return user
 
-    def create_superuser(self, phone, password=None):
+    def create_superuser(self, email, password=None):
         user = self.create_user(
-            phone,
+            email,
             password=password,
             is_staff=True,
             is_admin=True,
@@ -55,6 +55,7 @@ class User(AbstractBaseUser):
     name        = models.CharField(max_length = 20, blank = True, null = True)
     standard    = models.CharField(max_length = 3, blank = True, null = True)
     score       = models.IntegerField(default = 16)
+    email=models.EmailField(unique=True)
     first_login = models.BooleanField(default=False)
     active      = models.BooleanField(default=True)
     staff       = models.BooleanField(default=False)
@@ -64,19 +65,19 @@ class User(AbstractBaseUser):
     counter = models.IntegerField(default=0, blank=False)   
 
 
-    USERNAME_FIELD = 'phone'
+    USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
     objects = UserManager()
 
     def __str__(self):
-        return self.phone
+        return self.email
 
     def get_full_name(self):
-        return self.phone
+        return self.email
 
     def get_short_name(self):
-        return self.phone
+        return self.email
 
     def has_perm(self, perm, obj=None):
         return True
@@ -97,7 +98,19 @@ class User(AbstractBaseUser):
     def is_active(self):
         return self.active
     
-   
+from rest_framework import serializers
+
+# from app.utils import get_timezones, DEFAULT_TIMEZONE  
+class CalendarUser(models.Model):
+    user = models.OneToOneField(User,on_delete=models.CASCADE)
+    timezone = models.CharField(max_length=50)
+
+
+class CalendarUserSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = CalendarUser
+        fields = ('user', 'timezone')
+
 
 
 
@@ -150,5 +163,60 @@ class PhoneOTP(models.Model):
 
     def __str__(self):
         return str(self.phone) + ' is sent ' + str(self.otp)
+
+
+class Apointment(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    title = models.CharField(max_length=200, unique=True)
+    description = models.TextField()
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    created_date = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+    
+    def get_absolute_url(self):
+        return reverse('calendarapp:event-detail', args=(self.id,))
+
+    @property
+    def get_html_url(self):
+        url = reverse('calendarapp:event-detail', args=(self.id,))
+        return f'<a href="{url}"> {self.title} </a>'
+
+
+class ApointmentMember(models.Model):
+    event = models.ForeignKey(Apointment, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ['event', 'user']
+
+    def __str__(self):
+        return str(self.user)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

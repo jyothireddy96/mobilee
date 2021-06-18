@@ -8,6 +8,14 @@ from .forms import UserAdminCreationForm, UserAdminChangeForm
 from .models import Profile, PhoneOTP
 admin.site.register(PhoneOTP)
 
+from .models import *
+
+class ApointmentMemberAdmin(admin.ModelAdmin):
+    model =ApointmentMember
+    list_display = ['event', 'user']
+
+admin.site.register(Apointment)
+admin.site.register(ApointmentMember, ApointmentMemberAdmin)
 class ProfileInline(admin.StackedInline):
     model = Profile
     can_delete = False
@@ -40,3 +48,8 @@ class UserAdmin(BaseUserAdmin):
 
 admin.site.register(User, UserAdmin)
 admin.site.unregister(Group)
+
+
+
+
+

@@ -1,12 +1,14 @@
 from rest_framework import permissions, generics, status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from django.contrib.auth import login
-# from app.auth import TokenAuthentication
-# from .views import LoginView as KnoxLoginView
-# from blissedmaths.utils import phone_validator, password_generator, otp_generator
-from .serializers import (CreateUserSerializer, ChangePasswordSerializer,UserrSerializer,
-                          UserSerializer, LoginUserSerializer, ForgetPasswordSerializer)
+from datetime import datetime
+from django.core.exceptions import ObjectDoesNotExist
+import pyotp
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import User
+import base64
+from .serializers import *
 from .models import User, PhoneOTP
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
@@ -26,132 +28,7 @@ class LoginAPIView(APIView):
             user.save()
         login(request, user)
         return super().post(request, format=None)
-class UserAPIView(generics.RetrieveAPIView):
-    permission_classes = [permissions.IsAuthenticated, ]
-    serializer_class = UserSerializer
-    def get_object(self):
-        return self.request.user
-class ChangePasswordAPIView(generics.UpdateAPIView):
-    serializer_class = ChangePasswordSerializer
-    permission_classes = [permissions.IsAuthenticated, ]
-    def get_object(self, queryset=None):
-        obj = self.request.user
-        return obj
-    def update(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            if not self.object.check_password(serializer.data.get('password_1')):
-                return Response({
-                    'status': False,
-                    'current_password': 'Does not match with our data',
-                }, status=status.HTTP_400_BAD_REQUEST)
 
-            self.object.set_password(serializer.data.get('password_2'))
-            self.object.password_changed = True
-            self.object.save()
-            return Response({
-                "status": True,
-                "detail": "Password has been successfully changed.",
-            })
-        return Response(serializer.error, status=status.HTTP_400_BAD_REQUEST)
-def send_otp(phone):
-    if phone:
-        key = otp_generator()
-        phone = str(phone)
-        otp_key = str(key)
-        return otp_key
-    else:
-        return False
-def send_otp_forgot(phone):
-    if phone:
-        key = otp_generator()
-        phone = str(phone)
-        otp_key = str(key)
-        user = get_object_or_404(User, phone__iexact = phone)
-        if user.name:
-            name = user.name
-        else:
-            name = phone
-      
-        return otp_key
-    else:
-        return False
-class ValidatePhoneSendOTPView(APIView):
-    def post(self, request, *args, **kwargs):
-        phone_number = request.data.get('phone')
-        if phone_number:
-            phone = str(phone_number)
-            user = User.objects.filter(phone__iexact = phone)
-            if user.exists():
-                return Response({'status': False, 'detail': 'Phone Number already exists'})
-            else:
-                otp = send_otp(phone)
-                print(phone, otp)
-                if otp:
-                    otp = str(otp)
-                    count = 0
-                    old = PhoneOTP.objects.filter(phone__iexact = phone)
-                    if old.exists():
-                        count = old.first().count
-                        old.first().count = count + 1
-                        old.first().save()
-                    else:
-                        count = count + 1
-                        PhoneOTP.objects.create(
-                             phone =  phone, 
-                             otp =   otp,
-                             count = count
-                             )
-                    if count > 7:
-                        return Response({
-                            'status' : False, 
-                             'detail' : 'Maximum otp limits reached. Kindly support our customer care or try with different number'
-                        })
-                else:
-                    return Response({
-                                'status': 'False', 'detail' : "OTP sending error. Please try after some time."
-                            })
-
-                return Response({
-                    'status': True, 'detail': 'Otp has been sent successfully.'
-                })
-        else:
-            return Response({
-                'status': 'False', 'detail' : "I haven't received any phone number. Please do a POST request."
-            })
-class ValidateOTPView(APIView):
-    def post(self, request, *args, **kwargs):
-        phone = request.data.get('phone', False)
-        otp_sent   = request.data.get('otp', False)
-        if phone and otp_sent:
-            old = PhoneOTP.objects.filter(phone__iexact = phone)
-            if old.exists():
-                old = old.first()
-                otp = old.otp
-                if str(otp) == str(otp_sent):
-                    old.logged = True
-                    old.save()
-
-                    return Response({
-                        'status' : True, 
-                        'detail' : 'OTP matched, kindly proceed to save password'
-                    })
-                else:
-                    return Response({
-                        'status' : False, 
-                        'detail' : 'OTP incorrect, please try again'
-                    })
-            else:
-                return Response({
-                    'status' : False,
-                    'detail' : 'Phone not recognised. Kindly request a new otp with this number'
-                })
-        else:
-            return Response({
-                'status' : 'False',
-                'detail' : 'Either phone or otp was not recieved in Post request'
-            })
 class RegisterView(APIView):
     def post(self, request, *args, **kwargs):
         phone = request.data.get('phone', False)
@@ -197,136 +74,6 @@ class RegisterView(APIView):
                 'detail' : 'Either phone or password was not recieved in Post request'
             })
 
-class ValidatePhoneForgotView(APIView):
-    def post(self, request, *args, **kwargs):
-        phone_number = request.data.get('phone')
-        if phone_number:
-            phone = str(phone_number)
-            user = User.objects.filter(phone__iexact = phone)
-            if user.exists():
-                otp = send_otp_forgot(phone)
-                print(phone, otp)
-                if otp:
-                    otp = str(otp)
-                    count = 0
-                    old = PhoneOTP.objects.filter(phone__iexact = phone)
-                    if old.exists():
-                        old = old.first()
-                        k = old.count
-                        if k > 10:
-                            return Response({
-                                'status' : False, 
-                                'detail' : 'Maximum otp limits reached. Kindly support our customer care or try with different number'
-                            })
-                        old.count = k + 1
-                        old.save()
-
-                        return Response({'status': True, 'detail': 'OTP has been sent for password reset. Limits about to reach.'})
-                    
-                    else:
-                        count = count + 1
-               
-                        PhoneOTP.objects.create(
-                             phone =  phone, 
-                             otp =   otp,
-                             count = count,
-                             forgot = True, 
-        
-                             )
-                        return Response({'status': True, 'detail': 'OTP has been sent for password reset'})
-                    
-                else:
-                    return Response({
-                                    'status': 'False', 'detail' : "OTP sending error. Please try after some time."
-                                })
-            else:
-                return Response({
-                    'status' : False,
-                    'detail' : 'Phone number not recognised. Kindly try a new account for this number'
-                })
-class ForgotValidateOTPView(APIView):
-    def post(self, request, *args, **kwargs):
-        phone = request.data.get('phone', False)
-        otp_sent   = request.data.get('otp', False)
-
-        if phone and otp_sent:
-            old = PhoneOTP.objects.filter(phone__iexact = phone)
-            if old.exists():
-                old = old.first()
-                if old.forgot == False:
-                    return Response({
-                        'status' : False, 
-                        'detail' : 'This phone havenot send valid otp for forgot password. Request a new otp or contact help centre.'
-                     })
-                    
-                otp = old.otp
-                if str(otp) == str(otp_sent):
-                    old.forgot_logged = True
-                    old.save()
-
-                    return Response({
-                        'status' : True, 
-                        'detail' : 'OTP matched, kindly proceed to create new password'
-                    })
-                else:
-                    return Response({
-                        'status' : False, 
-                        'detail' : 'OTP incorrect, please try again'
-                    })
-            else:
-                return Response({
-                    'status' : False,
-                    'detail' : 'Phone not recognised. Kindly request a new otp with this number'
-                })
-        else:
-            return Response({
-                'status' : 'False',
-                'detail' : 'Either phone or otp was not recieved in Post request'
-            })
-class ForgetPasswordChangeView(APIView):
-    def post(self, request, *args, **kwargs):
-        phone = request.data.get('phone', False)
-        otp   = request.data.get("otp", False)
-        password = request.data.get('password', False)
-        if phone and otp and password:
-            old = PhoneOTP.objects.filter(Q(phone__iexact = phone) & Q(otp__iexact = otp))
-            if old.exists():
-                old = old.first()
-                if old.forgot_logged:
-                    post_data = {
-                        'phone' : phone,
-                        'password' : password
-                    }
-                    user_obj = get_object_or_404(User, phone__iexact=phone)
-                    serializer = ForgetPasswordSerializer(data = post_data)
-                    serializer.is_valid(raise_exception = True)
-                    if user_obj:
-                        user_obj.set_password(serializer.data.get('password'))
-                        user_obj.active = True
-                        user_obj.save()
-                        old.delete()
-                        return Response({
-                            'status' : True,
-                            'detail' : 'Password changed successfully. Please Login'
-                        })
-
-                else:
-                    return Response({
-                'status' : False,
-                'detail' : 'OTP Verification failed. Please try again in previous step'
-                                 })
-
-            else:
-                return Response({
-                'status' : False,
-                'detail' : 'Phone and otp are not matching or a new phone has entered. Request a new otp in forgot password'
-            })
-
-        else:
-            return Response({
-                'status' : False,
-                'detail' : 'Post request have parameters mising.'
-            })
 
 from rest_framework import viewsets
 
@@ -354,56 +101,6 @@ class TodoList(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-class UserDetail(APIView):
-    @csrf_exempt
-    def get_object(self, pk):
-        try:
-            return Todo.objects.get(pk=pk)
-        except Snippet.DoesNotExist:
-            raise Http404
-    @csrf_exempt
-    def get(self, request, pk, format=None):
-        snippet = self.get_object(pk)
-        serializer = UserSerializer(snippet)
-        return Response(serializer.data)
-
-class TodoDetail(APIView):
-    @csrf_exempt
-    def get_object(self, pk):
-        try:
-            return User.objects.get(pk=pk)
-        except Snippet.DoesNotExist:
-            raise Http404
-    
-    @csrf_exempt
-    def get(self, request, pk, format=None):
-        snippet = self.get_object(pk)
-        serializer = UserSerializer(snippet)
-        return Response(serializer.data)
-    @csrf_exempt
-    def patch(self, request, pk, format=None):
-        snippet = self.get_object(pk)
-        serializer = TodoSerializer(snippet, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    # by default ZingGrid will send a /url/:id to delete     
-    @csrf_exempt
-    def delete(self, request, pk, format=None):
-        snippet = self.get_object(pk)
-        snippet.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-from datetime import datetime
-from django.core.exceptions import ObjectDoesNotExist
-import pyotp
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from .models import User
-import base64
 
 
 class generateKey:
@@ -414,21 +111,21 @@ class generateKey:
 
 class getPhoneNumberRegistered(APIView):
     @staticmethod
-    def get(request, phone):
+    def get(request, email):
         try:
-            phone = User.objects.get(phone=phone)  
+            email = User.objects.get(email=email)  
         except ObjectDoesNotExist:
             User.objects.create(
-                phone=phone,
+                email=email,
             )
-            phone = User.objects.get(phone=phone)  
-        phone.counter += 1  
-        phone.save() 
+            email = User.objects.get(email=email)  
+        email.counter += 1  
+        email.save() 
         keygen = generateKey()
         key = base64.b32encode(keygen.returnValue(phone).encode())  
         OTP = pyotp.HOTP(key)  
-        print(OTP.at(phone.counter))
-        return Response({"OTP": OTP.at(phone.counter)}, status=200)  # Just for demonstration
+        print(OTP.at(email.counter))
+        return Response({"OTP": OTP.at(email.counter)}, status=200)  # Just for demonstration
 
     @staticmethod
     def post(request, phone):
@@ -438,11 +135,11 @@ class getPhoneNumberRegistered(APIView):
             return Response("User does not exist", status=404)  # False Call
 
         keygen = generateKey()
-        key = base64.b32encode(keygen.returnValue(phone).encode())  
+        key = base64.b32encode(keygen.returnValue(email).encode())  
         OTP = pyotp.HOTP(key)  
-        if OTP.verify(request.data["otp"], phone.counter): 
-            phone.isVerified = True
-            phone.save()
+        if OTP.verify(request.data["otp"],email.counter): 
+            email.isVerified = True
+            email.save()
             return Response("You are authorised", status=200)
         return Response("OTP is wrong", status=400)
 
@@ -452,13 +149,13 @@ class getPhoneNumberRegistered_TimeBased(APIView):
     @staticmethod
     def get(request, phone):
         try:
-            phone = User.objects.get(phone=phone)  
+            email = User.objects.get(email=email)  
         except ObjectDoesNotExist:
             User.objects.create(
-                phone=phone,
+                email=email,
             )
-            phone = User.objects.get(phone=phone)  
-        phone.save()  
+            email = User.objects.get(email=email)  
+        email.save()  
         keygen = generateKey()
         key = base64.b32encode(keygen.returnValue(phone).encode())  
         OTP = pyotp.TOTP(key,interval = EXPIRY_TIME) 
@@ -469,7 +166,7 @@ class getPhoneNumberRegistered_TimeBased(APIView):
     @staticmethod
     def post(request, phone):
         try:
-            phone = User.objects.get(phone=phone)
+            email = User.objects.get(email=email)
         except ObjectDoesNotExist:
             return Response("User does not exist", status=404) 
 
@@ -481,3 +178,135 @@ class getPhoneNumberRegistered_TimeBased(APIView):
             phone.save()
             return Response("You are authorised", status=200)
         return Response("OTP is wrong/expired", status=400)
+
+from datetime import datetime, date
+from django.shortcuts import render, redirect
+from django.http import HttpResponse, HttpResponseRedirect
+from django.views import generic
+from django.utils.safestring import mark_safe
+from datetime import timedelta
+import calendar
+from .models import *
+from .forms import ApointmentForm, AddMemberForm
+from django.shortcuts import get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+def get_date(req_day):
+    if req_day:
+        year, month = (int(x) for x in req_day.split('-'))
+        return date(year, month, day=1)
+    return datetime.today()
+
+def prev_month(d):
+    first = d.replace(day=1)
+    prev_month = first - timedelta(days=1)
+    month = 'month=' + str(prev_month.year) + '-' + str(prev_month.month)
+    return month
+
+def next_month(d):
+    days_in_month = calendar.monthrange(d.year, d.month)[1]
+    last = d.replace(day=days_in_month)
+    next_month = last + timedelta(days=1)
+    month = 'month=' + str(next_month.year) + '-' + str(next_month.month)
+    return month
+
+class CalendarView(LoginRequiredMixin, generic.ListView):
+    login_url = 'signup'
+    model = Apointment
+    template_name = 'calendar.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        d = get_date(self.request.GET.get('month', None))
+        cal = Calendar(d.year, d.month)
+        html_cal = cal.formatmonth(withyear=True)
+        context['calendar'] = mark_safe(html_cal)
+        context['prev_month'] = prev_month(d)
+        context['next_month'] = next_month(d)
+        return context
+
+@login_required(login_url='signup')
+def create_event(request):    
+    form = EventForm(request.POST or None)
+    if request.POST and form.is_valid():
+        title = form.cleaned_data['title']
+        description = form.cleaned_data['description']
+        start_time = form.cleaned_data['start_time']
+        end_time = form.cleaned_data['end_time']
+        Event.objects.get_or_create(
+            user=request.user,
+            title=title,
+            description=description,
+            start_time=start_time,
+            end_time=end_time
+        )
+        return HttpResponseRedirect(reverse('calendarapp:calendar'))
+    return render(request, 'event.html', {'form': form})
+
+class EventEdit(generic.UpdateView):
+    model = Apointment
+    fields = ['title', 'description', 'start_time', 'end_time']
+    template_name = 'event.html'
+
+@login_required(login_url='signup')
+def event_details(request, event_id):
+    event = Event.objects.get(id=event_id)
+    eventmember = EventMember.objects.filter(event=event)
+    context = {
+        'event': event,
+        'eventmember': eventmember
+    }
+    return render(request, 'event-details.html', context)
+
+
+def add_eventmember(request, event_id):
+    forms = AddMemberForm()
+    if request.method == 'POST':
+        forms = AddMemberForm(request.POST)
+        if forms.is_valid():
+            member = EventMember.objects.filter(event=event_id)
+            event = Event.objects.get(id=event_id)
+            if member.count() <= 9:
+                user = forms.cleaned_data['user']
+                EventMember.objects.create(
+                    event=event,
+                    user=user
+                )
+                return redirect('calendarapp:calendar')
+            else:
+                print('--------------User limit exceed!-----------------')
+    context = {
+        'form': forms
+    }
+    return render(request, 'add_member.html', context)
+
+@login_required(login_url='signup')
+def index(request):
+    return HttpResponse('hello')
+class EventMemberDeleteView(generic.DeleteView):
+    model = ApointmentMember
+    template_name = 'event_delete.html'
+    success_url = reverse_lazy('calendarapp:calendar')
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
+from .forms import *
+
+def signup(request):
+    forms = SignupForm()
+    if request.method == 'POST':
+        forms = SignupForm(request.POST)
+        if forms.is_valid():
+            username = forms.cleaned_data['username']
+            password = forms.cleaned_data['password']
+            user = authenticate(username=username, password=password)
+            if user:
+                login(request, user)
+                return redirect('calendarapp:calendar')
+    context = {'form': forms}
+    return render(request, 'app/signup.html', context)
+
+def user_logout(request):
+    logout(request)
+    return redirect('signup')

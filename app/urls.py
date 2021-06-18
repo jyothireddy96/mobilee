@@ -15,14 +15,20 @@ urlpatterns = [
     path('', include(router.urls)),
     re_path(r'^admin/', admin.site.urls),
     path('create', views.TodoList.as_view()),
-    path('del/<int:pk>', views.TodoDetail.as_view()),
-    path('Usr/<int:pk>', views.UserDetail.as_view()),
     path('registerr',views.RegisterView.as_view()),
     path('LoginAPI',views.LoginAPIView.as_view()),
-    path('ValidatePhoneForgot',views.ValidatePhoneForgotView.as_view()),
-    path('ValidatePhoneSendOTP',views.ValidatePhoneSendOTPView.as_view()),
-    path('ForgotValidateOTP',views.ForgotValidateOTPView.as_view()),
     path("<phone>/", views.getPhoneNumberRegistered.as_view(), name="OTP Gen"),
-    path("time_based/<phone>/", views.getPhoneNumberRegistered_TimeBased.as_view(), name="OTP Gen Time Based"),
-]
+    
+    # path('index', views.index, name='index'),
+    path('', views.CalendarView.as_view(), name='calendar'),
+    path('event/new/', views.create_event, name='event_new'),
+    path('event/edit/<int:pk>/', views.EventEdit.as_view(), name='event_edit'),
+    path('event/<int:event_id>/details/', views.event_details, name='event-detail'),
+    path('add_eventmember/<int:event_id>', views.add_eventmember, name='add_eventmember'),
+    path('event/<int:pk>/remove', views.EventMemberDeleteView.as_view(), name="remove_event"),
+   
 
+
+   
+
+]
